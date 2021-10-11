@@ -69,7 +69,7 @@ class cameraSettings(PropertyGroup):
         name="Automatic focus positions", 
         description="Auto setting of camera position limts.",
         default=False,
-        )
+    )
 
     camera_ortho : BoolProperty(
         name="Orthographic cameras", 
@@ -77,6 +77,17 @@ class cameraSettings(PropertyGroup):
         default=False,
     )
 
+    camera_static : BoolProperty(
+        name="Stationary cameras", 
+        description="Keep cameras in same Z position",
+        default=True,
+    )
+
+    static_focus : FloatProperty(
+        name="Static camera focus distance", 
+        description="Focus distance for non-static camera placement",
+        default=1.0,
+    )
 
     camera_height : FloatProperty(
         name="Camera Height",
@@ -383,8 +394,15 @@ class CreateCameras(Operator):
             # Set aperture size
             camera_data.dof.aperture_fstop = sfftool.aperture_size
 
-            # Set depth of field focus distance
-            camera_data.dof.focus_distance = (sfftool.camera_height - focusPos)
+            if not sfftool.camera_static:
+
+                # Set static focus distance so that all cameras are focused at same length,
+                camera_data.dof.focus_distance = sfftool.static_focus
+
+            elif sfftool.camera_static:
+
+                # Set depth of field focus distance
+                camera_data.dof.focus_distance = (sfftool.camera_height - focusPos)
 
             # Create camera object from camera_data
             camera_object = bpy.data.objects.new("Camera", camera_data)
@@ -396,7 +414,15 @@ class CreateCameras(Operator):
             camera_object.parent = sff_parent
 
             # Move camera to desired location
-            camera_object.location = (0, 0, sfftool.camera_height)
+            if not sfftool.camera_static:
+
+                # Set camera so that each sampled focus point is at "focus distance" from camera 
+                camera_object.location = (0, 0, sfftool.static_focus+focusPos)
+            
+            elif sfftool.camera_static:
+
+                # Set all cameras to same location
+                camera_object.location = (0, 0, sfftool.camera_height)
 
             # Add camera ID to stored list
             sfftool.camera_list.append(camera_object.name)
@@ -732,6 +758,7 @@ class RTIPanel(Panel):
         layout.operator("rti.create_single_camera")
 
         layout.prop(scene.file_tool, "output_path")
+        layout.prop(scene.file_tool, "output_file_name")
 
         layout.operator("sffrti.set_animation")
         layout.operator("files.set_render")
@@ -767,7 +794,11 @@ class SFFPanel(Panel):
         row.prop(sfftool, "camera_ortho")
         row.prop(sfftool, "focus_limits_auto")
 
+        layout.prop(sfftool, "camera_static")
+
         layout.prop(sfftool, "main_object")
+
+        layout.prop(sfftool, "static_focus")
 
         layout.prop(sfftool, "camera_height")
 
