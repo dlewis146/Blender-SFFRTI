@@ -32,6 +32,7 @@ from bpy.types import (Panel,
                        )
 from numpy import arange, subtract
 
+
 ### Scene Properties
 
 class light(bpy.types.PropertyGroup):
@@ -77,10 +78,13 @@ class cameraSettings(PropertyGroup):
         default=False,
     )
 
-    camera_static : BoolProperty(
-        name="Stationary cameras", 
-        description="Keep cameras in same Z position",
-        default=True,
+    camera_type : bpy.props.EnumProperty(
+        name = "Camera types",
+        description = "Select a method for animating frames",
+        items = [
+            ('Moving', "Moving camera", "Set a single camera that moves to all desired positions"),
+            ('Static', "Static cameras", "Set single camera that changes focus distance")
+                ]
     )
 
     static_focus : FloatProperty(
@@ -132,6 +136,7 @@ class cameraSettings(PropertyGroup):
 
     # camera_object_list : bpy.props.CollectionProperty(type = camera)
     camera_list = []
+    zPosList = []
 
 class fileSettings(PropertyGroup):
 
@@ -379,56 +384,50 @@ class CreateCameras(Operator):
         elif sfftool.focus_limits_auto is False:        
             f = np.linspace(start=sfftool.min_z_pos, stop=sfftool.max_z_pos, num=sfftool.num_z_pos, endpoint=True)
 
+        # Add all zPos to sfftool.zPosList
+        ## NOTE: Seems to require appending to have persistency outside of this method
+        [sfftool.zPosList.append(i) for i in f]
 
-        # Iterate through f and create cameras
-        for focusPos in f:
+        # Instantiate camera object
+        camera_data = bpy.data.cameras.new("Camera")
 
-            camera_data = bpy.data.cameras.new("Camera")
+        camera_data.dof.use_dof = True
 
-            camera_data.dof.use_dof = True
+        # Set camera type to orthographic if box is checked
+        if sfftool.camera_ortho:
+            camera_data.type = 'ORTHO'
 
-            # Set camera type to orthographic if box is checked
-            if sfftool.camera_ortho:
-                camera_data.type = 'ORTHO'
+        # Set aperture size
+        camera_data.dof.aperture_fstop = sfftool.aperture_size
 
-            # Set aperture size
-            camera_data.dof.aperture_fstop = sfftool.aperture_size
+        if sfftool.camera_type == 'Moving':
+            # Set static focus distance
+            camera_data.dof.focus_distance = sfftool.static_focus
 
-            if not sfftool.camera_static:
+        elif sfftool.camera_type == 'Static':
+            # Set depth of field focus distance for first position
+            camera_data.dof.focus_distance = (sfftool.camera_height - f[0])
 
-                # Set static focus distance so that all cameras are focused at same length,
-                camera_data.dof.focus_distance = sfftool.static_focus
+        # Create camera object from camera_data
+        camera_object = bpy.data.objects.new("Camera", camera_data)
 
-            elif sfftool.camera_static:
+        # Link camera with current scene
+        scene.collection.objects.link(camera_object)
 
-                # Set depth of field focus distance
-                camera_data.dof.focus_distance = (sfftool.camera_height - focusPos)
+        # Set parent to sff_parent
+        camera_object.parent = sff_parent
 
-            # Create camera object from camera_data
-            camera_object = bpy.data.objects.new("Camera", camera_data)
+        # Move camera to desired location
+        if sfftool.camera_type == 'Moving':
+            # Set camera so that first sampled focus point is at "focus distance" from camera 
+            camera_object.location = (0, 0, sfftool.static_focus+f[0])
+        
+        elif sfftool.camera_type == 'Static':
+            # Set camera to given height
+            camera_object.location = (0, 0, sfftool.camera_height)
 
-            # Link camera with current scene
-            scene.collection.objects.link(camera_object)
-
-            # Set parent to sff_parent
-            camera_object.parent = sff_parent
-
-            # Move camera to desired location
-            if not sfftool.camera_static:
-
-                # Set camera so that each sampled focus point is at "focus distance" from camera 
-                camera_object.location = (0, 0, sfftool.static_focus+focusPos)
-            
-            elif sfftool.camera_static:
-
-                # Set all cameras to same location
-                camera_object.location = (0, 0, sfftool.camera_height)
-
-            # Add camera ID to stored list
-            sfftool.camera_list.append(camera_object.name)
-          
-            self.report({'INFO'},"Created camera: %s focused at (0, 0, %f)."%(camera_object.name, focusPos))
-
+        # Add camera ID to stored list
+        sfftool.camera_list.append(camera_object.name)
 
         return {'FINISHED'}
 
@@ -545,29 +544,43 @@ class SetAnimation(Operator):
         csvHeader = "image,x_lamp,y_lamp,z_lamp,z_cam,aperture_fstop,lens"
         scene.file_tool.csvOutputLines.append(csvHeader)
 
-
         # Clear previous animations
-        for lightName in scene.rti_tool.light_list:
-            scene.objects[lightName].animation_data_clear()
-        for cameraName in scene.sff_tool.camera_list:
-            scene.objects[cameraName].animation_data_clear()
-        
+        try:
+            for lightName in scene.rti_tool.light_list:
+                scene.objects[lightName].animation_data_clear()
+            for cameraName in scene.sff_tool.camera_list:
+                scene.objects[cameraName].animation_data_clear()
+        except KeyError:
+            # Something wasn't deleted correctly and therefore wasn't deleted from a list
+            pass
+
         # Clear timeline markers
         scene.timeline_markers.clear()
         
-        frameCounter = 0
         camCount = 0
         lightCount = 0
 
+        # Iterate through all permutations of cameras and lights and create keyframes for animation
+        for camIdx in range(0, len(scene.sff_tool.zPosList)):
+        # for camIdx in range(0, len(scene.sff_tool.camera_list)):
 
-        for camIdx in range(0, len(scene.sff_tool.camera_list)):
-
-            camera = scene.objects[scene.sff_tool.camera_list[camIdx]]
+            ## TODO: Change to just saving and selecting single camera instead of list
+            camera = scene.objects[scene.sff_tool.camera_list[0]]
+            # camera = scene.objects[scene.sff_tool.camera_list[camIdx]]
 
             # currentFrame based on SyntheticRTI
             currentFrame = (camIdx * numLights) + 1
             # currentFrame = (numCams * numLights) + (camIdx * numLights) + 1
 
+            # Move camera to desired location
+            if scene.sff_tool.camera_type == 'Moving':
+                # Move camera to current in zPosList
+                camera.location = (0, 0, (scene.sff_tool.static_focus + scene.sff_tool.zPosList[camIdx]) )
+
+            elif scene.sff_tool.camera_type == 'Static':
+                # Change camera focus distance to current in zPosList
+                camera.data.dof.focus_distance = (scene.sff_tool.camera_height - scene.sff_tool.zPosList[camIdx])
+            
             mark = scene.timeline_markers.new(camera.name, frame=currentFrame)
             mark.camera = camera
 
@@ -579,15 +592,18 @@ class SetAnimation(Operator):
                 currentFrame = (camIdx * numLights) + lightIdx + 1
                 # currentFrame = (numCams * numLights) + (camIdx * numLights) + lightIdx + 1
 
+                # Adapted from SyntheticRTI. Make sure light is hidden in previous and next frames.
+
                 light.hide_viewport = True
                 light.hide_render = True
                 light.hide_set(True)
 
-                # Taken from SyntheticRTI. Think it's making sure previous and next frames are hidden?
                 light.keyframe_insert(data_path="hide_render", frame=currentFrame-1)
                 light.keyframe_insert(data_path="hide_viewport", frame = currentFrame-1)
                 light.keyframe_insert(data_path="hide_render", frame=currentFrame+1)
                 light.keyframe_insert(data_path="hide_viewport", frame=currentFrame+1)
+
+                # Make light visible in current frame.
 
                 light.hide_viewport = False
                 light.hide_render = False
@@ -596,10 +612,14 @@ class SetAnimation(Operator):
                 light.keyframe_insert(data_path="hide_render", frame=currentFrame)
                 light.keyframe_insert(data_path="hide_viewport", frame=currentFrame)
 
+                # Insert keyframes to animate camera at current frame
+                camera.keyframe_insert(data_path="location", frame=currentFrame)
+                camera.keyframe_insert(data_path="location", frame=currentFrame)
+
                 outputFrameNumber = str(currentFrame).zfill(len(str(numCams*numLights)))
 
                 # Create line for output CSV
-                csvNewLine = "-{0},{1},{2},{3},{4},{5},{6}".format(outputFrameNumber, light.location[0], light.location[1], light.location[2], bpy.data.cameras[camIdx].dof.focus_distance, bpy.data.cameras[camIdx].dof.aperture_fstop, bpy.data.cameras[camIdx].lens)
+                csvNewLine = "-{0},{1},{2},{3},{4},{5},{6}".format(outputFrameNumber, light.location[0], light.location[1], light.location[2], camera.data.dof.focus_distance, camera.data.dof.aperture_fstop, camera.data.lens)
 
                 scene.file_tool.csvOutputLines.append(csvNewLine)
 
@@ -618,6 +638,10 @@ class SetRender(Operator):
     def execute(self, context):
         scene = context.scene
         
+        # Remove all existing nodes to create new ones
+        for node in scene.node_tree.nodes:
+            scene.node_tree.nodes.remove(node)
+
         outputPath = scene.file_tool.output_path
         fileName = scene.file_tool.output_file_name
 
@@ -648,9 +672,11 @@ class SetRender(Operator):
         scene.render.image_settings.color_mode = "RGB"
         scene.render.image_settings.color_depth = "16"
 
-        # Disable compositing of images so we always have fully "fresh" images, like a real data collection
-        scene.render.use_compositing = False
-        scene.use_nodes = False
+        # Make sure compositing and nodes are enabled so that we can generate depth and normal images with render passes
+        if not scene.render.use_compositing:
+            scene.render.use_compositing = True
+        if not scene.use_nodes:
+            scene.use_nodes = True
 
         # Set color management to linear (?)
         scene.display_settings.display_device = 'None'
@@ -658,7 +684,7 @@ class SetRender(Operator):
         # Disable overwriting of output images
         scene.render.use_overwrite = False
 
-        # Set render passes (?)
+        # Set render passes
         current_render_layer = scene.view_layers['View Layer']
         # current_render_layer = scene.view_layers.active
         current_render_layer.use_pass_combined = True
@@ -671,6 +697,23 @@ class SetRender(Operator):
         current_render_layer.use_pass_glossy_direct = True
         current_render_layer.use_pass_glossy_indirect = True
         current_render_layer.use_pass_glossy_color = True
+
+        # Create nodes for Render Layers, normalization, and output files
+        ## NOTE: Positioning of nodes isn't considered as it's not important for background processes.
+        render_layers_node = scene.node_tree.nodes.new(type="CompositorNodeRLayers")
+        normalize_node = scene.node_tree.nodes.new(type="CompositorNodeNormalize")
+        output_node_z = scene.node_tree.nodes.new(type="CompositorNodeOutputFile")
+        output_node_normal = scene.node_tree.nodes.new(type="CompositorNodeOutputFile")
+
+        # Link nodes together
+        scene.node_tree.links.new(render_layers_node.outputs['Depth'], normalize_node.inputs['Value'])
+        scene.node_tree.links.new(normalize_node.outputs['Value'], output_node_z.inputs['Image'])
+        
+        scene.node_tree.links.new(render_layers_node.outputs['Normal'], output_node_normal.inputs['Image'])
+
+        # Set output filepaths
+        output_node_z.base_path = scene.file_tool.output_path + "/Depth/"
+        output_node_normal.base_path = scene.file_tool.output_path + "/Normal/"
 
         return {'FINISHED'}
 
@@ -712,19 +755,6 @@ class CreateCSV(Operator):
 
         return {'FINISHED'}
 
-### Menus
-
-class OBJECT_MT_CustomMenu(bpy.types.Menu):
-    bl_label = "Light Settings"
-    bl_idname = "OBJECT_MT_custom_menu"
-
-    def draw(self, context):
-        layout = self.layout
-
-        # Built-in operators
-        layout.operator("object.select_all", text="Select/Deselect All").action = 'TOGGLE'
-        layout.operator("object.select_all", text="Inverse").action = 'INVERT'
-        layout.operator("object.select_random", text="Random")
 
 ### Panel in Object Mode
 
@@ -768,7 +798,6 @@ class RTIPanel(Panel):
         layout.separator()
 
 
-
 class SFFPanel(Panel):
     """
     Create tool panel for handling SFF data collection
@@ -794,7 +823,7 @@ class SFFPanel(Panel):
         row.prop(sfftool, "camera_ortho")
         row.prop(sfftool, "focus_limits_auto")
 
-        layout.prop(sfftool, "camera_static")
+        layout.prop(sfftool, "camera_type")
 
         layout.prop(sfftool, "main_object")
 
@@ -824,7 +853,7 @@ class SFFPanel(Panel):
 
 ### Registration
 
-classes = (light, camera, lightSettings, cameraSettings, fileSettings, CreateLights, CreateSingleCamera, DeleteLights, CreateCameras, CreateSingleLight, DeleteCameras, SetAnimation, SetRender, CreateCSV, OBJECT_MT_CustomMenu, RTIPanel, SFFPanel)
+classes = (light, camera, lightSettings, cameraSettings, fileSettings, CreateLights, CreateSingleCamera, DeleteLights, CreateCameras, CreateSingleLight, DeleteCameras, SetAnimation, SetRender, CreateCSV, RTIPanel, SFFPanel)
 
 def register():
 
