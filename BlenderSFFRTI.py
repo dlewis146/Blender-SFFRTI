@@ -1,10 +1,10 @@
 bl_info = {
-    "name" : "Blender RTI",
+    "name" : "Blender SFF-RTI",
     "author" : "David A. Lewis",
-    "version" : (0, 1, 0),
+    "version" : (1, 0, 0),
     "blender" : (2, 80, 0),
     "location" : "3D View > Tools > Blender RTI",
-    "description" : "Addon for the digital simulation of RTI data collections",
+    "description" : "Addon for the digital simulation of RTI and SFF data collections",
     "warning" : "",
     "wiki_url" : "",
     "tracker_url" : "",
@@ -197,6 +197,7 @@ class CreateLights(Operator):
         numLights = int(rows[0].split()[0])
 
         # Create default light data
+        # NOTE: Using SUN light source for ease of lighting right now since it doesn't implement the Inverse-Square Law for falloff of light intensity
         lightData = bpy.data.lights.new(name="RTI_light", type="SUN")
 
         # Run through .lp file and create all lights
@@ -464,6 +465,44 @@ class CreateSingleLight(Operator):
         return {'FINISHED'}
 
 
+class CreateBackgroundPlane(Operator):
+    bl_idname = "sff.create_background_plane"
+    bl_label = "Create background plane for SFF"
+    
+
+    def execute(self, context):
+        scene = context.scene
+
+        # Create plane with size 2 at (0,0,0)
+        bpy.ops.mesh.primitive_plane_add()
+
+        # Rename plane to a standard name we can reference later from the objects list
+        context.active_object.name = "Background Plane"
+
+        # Create new material and enable nodes
+        mat = bpy.data.materials.new("PlaneTextureBase")
+        mat.use_nodes = True
+        
+        ## Make plane black
+        mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value[0] = 0.0 ## R
+        mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value[1] = 0.0 ## G
+        mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value[2] = 0.0 ## B
+        mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value[3] = 1.0 ## Alpha
+
+        # Set plane's "Specular" and "Roughness" parameters to 0
+        mat.node_tree.nodes["Principled BSDF"].inputs["Specular"].default_value = 0.0
+        mat.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.0
+
+
+        # Assign material to object
+        if scene.objects["Background Plane"].data.materials:
+            scene.objects["Background Plane"].data.materials[0] = mat
+        else:
+            scene.objects["Background Plane"].data.materials.append(mat)
+
+        return {'FINISHED'}
+
+
 class DeleteCameras(Operator):
     bl_idname = "sff.delete_sff"
     bl_label = "Delete SFF system"
@@ -609,14 +648,17 @@ class SetAnimation(Operator):
 
                 # Adapted from SyntheticRTI. Make sure light is hidden in previous and next frames.
 
-                light.hide_viewport = True
-                light.hide_render = True
-                light.hide_set(True)
+                ## TEMP: Fix always hidden light in SFF by not hiding lights if only one exists. This might be an issue with how we're iterating across the lights...
+                if len(scene.rti_tool.light_list) > 1:
 
-                light.keyframe_insert(data_path="hide_render", frame=currentFrame-1)
-                light.keyframe_insert(data_path="hide_viewport", frame = currentFrame-1)
-                light.keyframe_insert(data_path="hide_render", frame=currentFrame+1)
-                light.keyframe_insert(data_path="hide_viewport", frame=currentFrame+1)
+                    light.hide_viewport = True
+                    light.hide_render = True
+                    light.hide_set(True)
+
+                    light.keyframe_insert(data_path="hide_render", frame=currentFrame-1)
+                    light.keyframe_insert(data_path="hide_viewport", frame = currentFrame-1)
+                    light.keyframe_insert(data_path="hide_render", frame=currentFrame+1)
+                    light.keyframe_insert(data_path="hide_viewport", frame=currentFrame+1)
 
                 # Make light visible in current frame.
 
@@ -627,16 +669,35 @@ class SetAnimation(Operator):
                 light.keyframe_insert(data_path="hide_render", frame=currentFrame)
                 light.keyframe_insert(data_path="hide_viewport", frame=currentFrame)
 
-                # Insert keyframes to animate camera at current frame
-                camera.keyframe_insert(data_path="location", frame=currentFrame)
-                camera.keyframe_insert(data_path="location", frame=currentFrame)
+                # Insert keyframes to animate camera movement at current frame IF MOVING IS SELECTED
+                if scene.sff_tool.camera_type == 'Moving':
+                    camera.keyframe_insert(data_path="location", frame=currentFrame)
+                    camera.keyframe_insert(data_path="location", frame=currentFrame)
+                
+                # Insert keyframes to animate camera focus length at current frame IF STATIC IS SELECTED
+                if scene.sff_tool.camera_type == 'Static':
+                    camera.data.dof.keyframe_insert(data_path="focus_distance", frame=currentFrame)
+
 
                 outputFrameNumber = str(currentFrame).zfill(len(str(numCams*numLights)))
 
+                csvNewLine = ""
+
                 # Create line for output CSV
-                csvNewLine = "-{0},{1},{2},{3},{4},{5},{6}".format(outputFrameNumber, light.location[0], light.location[1], light.location[2], camera.data.dof.focus_distance, camera.data.dof.aperture_fstop, camera.data.lens)
+
+                # If static camera, set 'z_cam' column to be camera focus distance
+                if scene.sff_tool.camera_type == "Static":
+                    csvNewLine = "-{0},{1},{2},{3},{4},{5},{6}".format(outputFrameNumber, light.location[0], light.location[1], light.location[2], camera.data.dof.focus_distance, camera.data.dof.aperture_fstop, camera.data.lens)
+                    print("Keyframe created for static camera focused at (0,0,{0}) and light at ({1}, {2}, {3})".format(camera.data.dof.focus_distance, light.location[0], light.location[1], light.location[2]))
+
+                # If moving camera, set 'z_cam' column to be new camera location
+                elif scene.sff_tool.camera_type == "Moving":
+                    csvNewLine = "-{0},{1},{2},{3},{4},{5},{6}".format(outputFrameNumber, light.location[0], light.location[1], light.location[2], camera.location[2], camera.data.dof.aperture_fstop, camera.data.lens)
+                    print("Keyframe created for dynamic camera at (0,0,{0}) and light at ({1}, {2}, {3})".format(camera.location[2], light.location[0], light.location[1], light.location[2]))
+
 
                 scene.file_tool.csvOutputLines.append(csvNewLine)
+
 
                 lightCount += 1
 
@@ -653,9 +714,18 @@ class SetRender(Operator):
     def execute(self, context):
         scene = context.scene
         
+        # Make sure compositing and nodes are enabled so that we can generate depth and normal images with render passes
+        if not scene.render.use_compositing:
+            scene.render.use_compositing = True
+        if not scene.use_nodes:
+            scene.use_nodes = True
+
         # Remove all existing nodes to create new ones
-        for node in scene.node_tree.nodes:
-            scene.node_tree.nodes.remove(node)
+        try:
+            for node in scene.node_tree.nodes:
+                scene.node_tree.nodes.remove(node)
+        except:
+            pass
 
         outputPath = scene.file_tool.output_path
         fileName = scene.file_tool.output_file_name
@@ -676,8 +746,7 @@ class SetRender(Operator):
         numSpaces = len(str(numCams*numLights))
 
         # Filename created to match SyntheticRTI as parsing functions are already written for that format
-        scene.render.filepath = "{0}/PNG/{1}-{2}".format(outputPath, fileName,"#"*numSpaces)
-
+        scene.render.filepath = "{0}/Renders/{1}-{2}".format(outputPath, fileName,"#"*numSpaces)
         
         # Make sure Cycles is set as render engine
         scene.render.engine = 'CYCLES'
@@ -686,12 +755,6 @@ class SetRender(Operator):
         scene.render.image_settings.file_format = "PNG"
         scene.render.image_settings.color_mode = "RGB"
         scene.render.image_settings.color_depth = "16"
-
-        # Make sure compositing and nodes are enabled so that we can generate depth and normal images with render passes
-        if not scene.render.use_compositing:
-            scene.render.use_compositing = True
-        if not scene.use_nodes:
-            scene.use_nodes = True
 
         # Set color management to linear (?)
         scene.display_settings.display_device = 'None'
@@ -761,6 +824,7 @@ class CreateCSV(Operator):
 
         # Write header
         file.write(scene.file_tool.csvOutputLines[0])
+        file.write('\n')
 
         # Iterate through the remaining lines, writing desired filename and respective line
         for line in scene.file_tool.csvOutputLines[1:]:
@@ -855,6 +919,8 @@ class SFFPanel(Panel):
 
         layout.operator("sff.create_single_light")
 
+        layout.operator("sff.create_background_plane")
+
         layout.operator("sffrti.set_animation")
 
         layout.prop(scene.file_tool, "output_path")
@@ -868,7 +934,7 @@ class SFFPanel(Panel):
 
 ### Registration
 
-classes = (light, camera, lightSettings, cameraSettings, fileSettings, CreateLights, CreateSingleCamera, DeleteLights, CreateCameras, CreateSingleLight, DeleteCameras, SetAnimation, SetRender, CreateCSV, RTIPanel, SFFPanel)
+classes = (light, camera, lightSettings, cameraSettings, fileSettings, CreateLights, CreateSingleCamera, DeleteLights, CreateCameras, CreateSingleLight, CreateBackgroundPlane, DeleteCameras, SetAnimation, SetRender, CreateCSV, RTIPanel, SFFPanel)
 
 def register():
 
