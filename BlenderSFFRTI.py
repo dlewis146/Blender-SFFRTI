@@ -83,7 +83,7 @@ class cameraSettings(PropertyGroup):
         description = "Select a method for animating frames",
         items = [
             ('Moving', "Moving camera", "Set a single camera that moves to all desired positions"),
-            ('Static', "Static cameras", "Set single camera that changes focus distance")
+            ('Static', "Static camera", "Set single camera that changes focus distance")
                 ]
     )
 
@@ -94,7 +94,7 @@ class cameraSettings(PropertyGroup):
     )
 
     camera_height : FloatProperty(
-        name="Camera Height",
+        name="Static camera height",
         description="Starting height for cameras (along Z-axis)",
         default=2.0,
     )
@@ -253,6 +253,8 @@ class CreateSingleCamera(Operator):
         # Add camera ID to SFF camera list for animation creation
         scene.sff_tool.camera_list.append(camera_object.name)
 
+        # Add default Z-position to zPosList
+        scene.sff_tool.zPosList.append(2)
 
         return {'FINISHED'}
 
@@ -304,6 +306,10 @@ class DeleteLights(Operator):
 
             # Remove rti_parent reference from properties
             rtitool.rti_parent = None
+
+            # Remove single camera from list if present
+            if len(scene.sff_tool.zPosList) == 1:
+                scene.sff_tool.zPosList.clear()
 
         except:
             pass
@@ -468,6 +474,7 @@ class DeleteCameras(Operator):
 
         # Iterate through all cameras in bpy.data.cameras and remove them
         for cam in bpy.data.cameras:
+            cam.animation_data_clear()
             bpy.data.cameras.remove(cam)
 
         # Empty list of camera IDs
@@ -508,6 +515,9 @@ class DeleteCameras(Operator):
             # Remove sff_parent reference from properties
             sfftool.sff_parent = None
 
+            # Clear zPosList
+            sfftool.zPosList.clear()
+
         except:
             self.report({'ERROR'}, "Broke inside child name getting")
 
@@ -538,21 +548,26 @@ class SetAnimation(Operator):
             return {'CANCELLED'}
 
         #Clear previously stored CSV lines to start anew
-        scene.file_tool.csvOutputLines = []
+        # scene.file_tool.csvOutputLines = []
+        scene.file_tool.csvOutputLines.clear()
 
         # Create CSV header
         csvHeader = "image,x_lamp,y_lamp,z_lamp,z_cam,aperture_fstop,lens"
         scene.file_tool.csvOutputLines.append(csvHeader)
 
         # Clear previous animations
-        try:
-            for lightName in scene.rti_tool.light_list:
-                scene.objects[lightName].animation_data_clear()
-            for cameraName in scene.sff_tool.camera_list:
-                scene.objects[cameraName].animation_data_clear()
-        except KeyError:
+        scene.animation_data_clear()
+        for o in scene.objects:
+            o.animation_data_clear()
+
+        # try:
+            # for lightName in scene.rti_tool.light_list:
+            #     scene.objects[lightName].animation_data_clear()
+            # for cameraName in scene.sff_tool.camera_list:
+            #     scene.objects[cameraName].animation_data_clear()
+        # except KeyError:
             # Something wasn't deleted correctly and therefore wasn't deleted from a list
-            pass
+            # pass
 
         # Clear timeline markers
         scene.timeline_markers.clear()
