@@ -313,7 +313,7 @@ class DeleteLights(Operator):
                 scene.sff_tool.zPosList.clear()
 
         except:
-            pass
+            self.report({'ERROR'}, "Broke inside child name getting")
 
         return {'FINISHED'}
 
@@ -557,6 +557,10 @@ class DeleteCameras(Operator):
             # Clear zPosList
             sfftool.zPosList.clear()
 
+            # NOTE: IF single light exists, assume it's created for SFF and clear it from the stored light list
+            if len(scene.rti_tool.light_list) == 1:
+                scene.rti_tool.light_list.clear()
+
         except:
             self.report({'ERROR'}, "Broke inside child name getting")
 
@@ -704,6 +708,10 @@ class SetAnimation(Operator):
             camCount += 1
             lightCount = 0
         
+        # Set maximum number of frames to render (-1 for the header)
+        scene.frame_end = len(scene.file_tool.csvOutputLines)-1
+
+
         return {'FINISHED'}
 
 
