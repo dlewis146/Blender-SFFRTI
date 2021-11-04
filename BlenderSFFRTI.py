@@ -326,10 +326,7 @@ class CreateCameras(Operator):
         scene = context.scene
         sfftool = scene.sff_tool
 
-        # Delete all pre-existing cameras
-        # DeleteCameras()
-
-        # Create parent to hold all the cameras
+        # Create parent to hold the system
         sff_parent = bpy.data.objects.new(name = "sff_parent", object_data = None)
 
         # Link to scene
@@ -338,58 +335,7 @@ class CreateCameras(Operator):
         # Link to properties
         sfftool.sff_parent = sff_parent
 
-        f = []
-        if sfftool.focus_limits_auto:
-            # Get min and max vertex Z positions and use to create f
-
-
-            obj = sfftool.main_object # Selected object for SFF
-            mw = obj.matrix_world # Selected object's world matrix
-
-            minZ = 9999
-            maxZ = 0
-
-            if len(obj.children) >= 1:
-                
-                # If the selected object has children, iterate through them, transforming their vertex coordinates into world coordinates, then find the minimum and maximum amongst them.
-                for child in obj.children:
-
-                    glob_vertex_coordinates = [mw @ v.co for v in child.data.vertices] # Global coordinates of vertices
-
-                    # Find lowest Z value amongst the object's verts
-                    minZCurr = min([co.z for co in glob_vertex_coordinates])
-
-                    # Find highest Z value amongst the object's verts
-                    maxZCurr = max([co.z for co in glob_vertex_coordinates])
-
-                    if minZCurr < minZ:
-                        minZ = minZCurr
-                    
-                    if maxZCurr > maxZ:
-                        maxZ = maxZCurr
-
-            else:
-                # In case there aren't any children, just iterate through all object vertices and find the min and max.
-
-                glob_vertex_coordinates = [mw @ v.co for v in obj.data.vertices] # Global coordinates of vertices
-
-                # Find lowest Z value amongst the object's verts
-                minZCurr = min([co.z for co in glob_vertex_coordinates])
-
-                # Find highest Z value amongst the object's verts
-                maxZCurr = max([co.z for co in glob_vertex_coordinates])
-
-                if minZCurr < minZ:
-                    minZ = minZCurr
-                
-                if maxZCurr > maxZ:
-                    maxZ = maxZCurr
-
-            f = np.linspace(start=minZ, stop=maxZ, num=sfftool.num_z_pos, endpoint=True) 
-
-
-        elif sfftool.focus_limits_auto is False:        
-            f = np.linspace(start=sfftool.min_z_pos, stop=sfftool.max_z_pos, num=sfftool.num_z_pos, endpoint=True)
+        f = DefineFocusLimits(context)
 
         # Add all zPos to sfftool.zPosList
         ## NOTE: Seems to require appending to have persistency outside of this method
@@ -437,6 +383,69 @@ class CreateCameras(Operator):
         sfftool.camera_list.append(camera_object.name)
 
         return {'FINISHED'}
+
+
+def DefineFocusLimits(context):
+    """
+    Function to compute list of Z-axis positions for SFF camera
+    """
+
+    scene = context.scene
+    sfftool = scene.sff_tool
+
+    f = []
+    if sfftool.focus_limits_auto:
+        # Get min and max vertex Z positions and use to create f
+
+
+        obj = sfftool.main_object # Selected object for SFF
+        mw = obj.matrix_world # Selected object's world matrix
+
+        minZ = 9999
+        maxZ = 0
+
+        if len(obj.children) >= 1:
+            
+            # If the selected object has children, iterate through them, transforming their vertex coordinates into world coordinates, then find the minimum and maximum amongst them.
+            for child in obj.children:
+
+                glob_vertex_coordinates = [mw @ v.co for v in child.data.vertices] # Global coordinates of vertices
+
+                # Find lowest Z value amongst the object's verts
+                minZCurr = min([co.z for co in glob_vertex_coordinates])
+
+                # Find highest Z value amongst the object's verts
+                maxZCurr = max([co.z for co in glob_vertex_coordinates])
+
+                if minZCurr < minZ:
+                    minZ = minZCurr
+                
+                if maxZCurr > maxZ:
+                    maxZ = maxZCurr
+
+        else:
+            # In case there aren't any children, just iterate through all object vertices and find the min and max.
+
+            glob_vertex_coordinates = [mw @ v.co for v in obj.data.vertices] # Global coordinates of vertices
+
+            # Find lowest Z value amongst the object's verts
+            minZCurr = min([co.z for co in glob_vertex_coordinates])
+
+            # Find highest Z value amongst the object's verts
+            maxZCurr = max([co.z for co in glob_vertex_coordinates])
+
+            if minZCurr < minZ:
+                minZ = minZCurr
+            
+            if maxZCurr > maxZ:
+                maxZ = maxZCurr
+
+        f = np.linspace(start=minZ, stop=maxZ, num=sfftool.num_z_pos, endpoint=True) 
+
+
+    elif sfftool.focus_limits_auto is False:        
+        f = np.linspace(start=sfftool.min_z_pos, stop=sfftool.max_z_pos, num=sfftool.num_z_pos, endpoint=True)
+    return f
 
 
 class CreateSingleLight(Operator):
@@ -603,20 +612,24 @@ class SetAnimation(Operator):
         for o in scene.objects:
             o.animation_data_clear()
 
-        # try:
-            # for lightName in scene.rti_tool.light_list:
-            #     scene.objects[lightName].animation_data_clear()
-            # for cameraName in scene.sff_tool.camera_list:
-            #     scene.objects[cameraName].animation_data_clear()
-        # except KeyError:
-            # Something wasn't deleted correctly and therefore wasn't deleted from a list
-            # pass
+        # Recompute SFF camera positions if currently stored num_z_pos is different than length of stored position list 
+        if scene.sff_tool.num_z_pos != len(scene.sff_tool.zPosList):
+            f = DefineFocusLimits(context)
+
+            # Clear sfftool.zPosList
+            scene.sff_tool.zPosList.clear()
+
+            # Add all zPos to sfftool.zPosList
+            ## NOTE: Seems to require appending to have persistency outside of this method
+            [scene.sff_tool.zPosList.append(i) for i in f]
+
 
         # Clear timeline markers
         scene.timeline_markers.clear()
         
         camCount = 0
         lightCount = 0
+
 
         # Iterate through all permutations of cameras and lights and create keyframes for animation
         for camIdx in range(0, len(scene.sff_tool.zPosList)):
@@ -639,8 +652,8 @@ class SetAnimation(Operator):
                 # Change camera focus distance to current in zPosList
                 camera.data.dof.focus_distance = (scene.sff_tool.camera_height - scene.sff_tool.zPosList[camIdx])
             
-            mark = scene.timeline_markers.new(camera.name, frame=currentFrame)
-            mark.camera = camera
+            # mark = scene.timeline_markers.new(camera.name, frame=currentFrame)
+            # mark.camera = camera
 
             for lightIdx in range(0, len(scene.rti_tool.light_list)):
 
