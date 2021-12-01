@@ -15,6 +15,7 @@ import os
 import bpy
 from mathutils import Vector
 import numpy as np
+import math
 
 from bpy.props import (StringProperty,
                        BoolProperty,
@@ -59,6 +60,12 @@ class lightSettings(PropertyGroup):
         name="RTI Parent",
         type=bpy.types.Object,
         description="Parent for RTI-related objects",
+    )
+
+    dome_radius : FloatProperty(
+        name="RTI dome radius",
+        description="Radius of RTI dome [m]",
+        default=1
     )
 
     # light_object_list : bpy.props.CollectionProperty(type = light)
@@ -206,6 +213,10 @@ class CreateLights(Operator):
             x = float(cols[1])
             y = float(cols[2])
             z = float(cols[3])
+
+            r, long, lat = Cartesian2Polar3D(x,y,z)
+            r = rtitool.dome_radius
+            x, y, z = Polar2Cartesian3D(r,long,lat)
 
             # Create light
             current_light = bpy.data.objects.new(name="Light_{0}".format(idx), object_data=lightData)
@@ -384,68 +395,6 @@ class CreateCameras(Operator):
 
         return {'FINISHED'}
 
-
-def DefineFocusLimits(context):
-    """
-    Function to compute list of Z-axis positions for SFF camera
-    """
-
-    scene = context.scene
-    sfftool = scene.sff_tool
-
-    f = []
-    if sfftool.focus_limits_auto:
-        # Get min and max vertex Z positions and use to create f
-
-
-        obj = sfftool.main_object # Selected object for SFF
-        mw = obj.matrix_world # Selected object's world matrix
-
-        minZ = 9999
-        maxZ = 0
-
-        if len(obj.children) >= 1:
-            
-            # If the selected object has children, iterate through them, transforming their vertex coordinates into world coordinates, then find the minimum and maximum amongst them.
-            for child in obj.children:
-
-                glob_vertex_coordinates = [mw @ v.co for v in child.data.vertices] # Global coordinates of vertices
-
-                # Find lowest Z value amongst the object's verts
-                minZCurr = min([co.z for co in glob_vertex_coordinates])
-
-                # Find highest Z value amongst the object's verts
-                maxZCurr = max([co.z for co in glob_vertex_coordinates])
-
-                if minZCurr < minZ:
-                    minZ = minZCurr
-                
-                if maxZCurr > maxZ:
-                    maxZ = maxZCurr
-
-        else:
-            # In case there aren't any children, just iterate through all object vertices and find the min and max.
-
-            glob_vertex_coordinates = [mw @ v.co for v in obj.data.vertices] # Global coordinates of vertices
-
-            # Find lowest Z value amongst the object's verts
-            minZCurr = min([co.z for co in glob_vertex_coordinates])
-
-            # Find highest Z value amongst the object's verts
-            maxZCurr = max([co.z for co in glob_vertex_coordinates])
-
-            if minZCurr < minZ:
-                minZ = minZCurr
-            
-            if maxZCurr > maxZ:
-                maxZ = maxZCurr
-
-        f = np.linspace(start=minZ, stop=maxZ, num=sfftool.num_z_pos, endpoint=True) 
-
-
-    elif sfftool.focus_limits_auto is False:        
-        f = np.linspace(start=sfftool.min_z_pos, stop=sfftool.max_z_pos, num=sfftool.num_z_pos, endpoint=True)
-    return f
 
 
 class CreateSingleLight(Operator):
@@ -856,6 +805,104 @@ class CreateCSV(Operator):
         return {'FINISHED'}
 
 
+### Helper functions
+
+def DefineFocusLimits(context):
+    """
+    Function to compute list of Z-axis positions for SFF camera
+    """
+
+    scene = context.scene
+    sfftool = scene.sff_tool
+
+    f = []
+    if sfftool.focus_limits_auto:
+        # Get min and max vertex Z positions and use to create f
+
+
+        obj = sfftool.main_object # Selected object for SFF
+        mw = obj.matrix_world # Selected object's world matrix
+
+        minZ = 9999
+        maxZ = 0
+
+        if len(obj.children) >= 1:
+            
+            # If the selected object has children, iterate through them, transforming their vertex coordinates into world coordinates, then find the minimum and maximum amongst them.
+            for child in obj.children:
+
+                glob_vertex_coordinates = [mw @ v.co for v in child.data.vertices] # Global coordinates of vertices
+
+                # Find lowest Z value amongst the object's verts
+                minZCurr = min([co.z for co in glob_vertex_coordinates])
+
+                # Find highest Z value amongst the object's verts
+                maxZCurr = max([co.z for co in glob_vertex_coordinates])
+
+                if minZCurr < minZ:
+                    minZ = minZCurr
+                
+                if maxZCurr > maxZ:
+                    maxZ = maxZCurr
+
+        else:
+            # In case there aren't any children, just iterate through all object vertices and find the min and max.
+
+            glob_vertex_coordinates = [mw @ v.co for v in obj.data.vertices] # Global coordinates of vertices
+
+            # Find lowest Z value amongst the object's verts
+            minZCurr = min([co.z for co in glob_vertex_coordinates])
+
+            # Find highest Z value amongst the object's verts
+            maxZCurr = max([co.z for co in glob_vertex_coordinates])
+
+            if minZCurr < minZ:
+                minZ = minZCurr
+            
+            if maxZCurr > maxZ:
+                maxZ = maxZCurr
+
+        f = np.linspace(start=minZ, stop=maxZ, num=sfftool.num_z_pos, endpoint=True) 
+
+
+    elif sfftool.focus_limits_auto is False:        
+        f = np.linspace(start=sfftool.min_z_pos, stop=sfftool.max_z_pos, num=sfftool.num_z_pos, endpoint=True)
+    return f
+
+
+def Cartesian2Polar3D(x, y, z):
+    """
+    Takes X, Y, and Z coordinates as input and converts them to a polar
+    coordinate system
+
+    Source: https://stackoverflow.com/questions/10868135/cartesian-to-polar-3d-coordinates
+
+    """
+
+    r = math.sqrt(x*x + y*y + z*z)
+
+    longitude = math.acos(x / math.sqrt(x*x + y*y)) * (-1 if y < 0 else 1)
+
+    latitude = math.acos(z / r)
+
+    return r, longitude, latitude
+
+
+def Polar2Cartesian3D(r, longitude, latitude):
+    """
+    Takes, r, longitude, and latitude coordinates in a polar coordinate
+    system and converts them to a 3D cartesian coordinate system
+
+    Source: https://stackoverflow.com/questions/10868135/cartesian-to-polar-3d-coordinates
+    """
+
+    x = r * math.sin(latitude) * math.cos(longitude)
+    y = r * math.sin(latitude) * math.sin(longitude)
+    z = r * math.cos(latitude)
+
+    return x, y, z
+
+
 ### Panel in Object Mode
 
 class RTIPanel(Panel):
@@ -880,6 +927,8 @@ class RTIPanel(Panel):
         mytool = scene.rti_tool
 
         layout.prop(mytool, "lp_file_path")
+
+        layout.prop(mytool, "dome_radius")
 
         row = layout.row(align = True)
         row.operator("rti.create_rti")
@@ -965,6 +1014,7 @@ def register():
     bpy.types.Scene.rti_tool = PointerProperty(type=lightSettings)
     bpy.types.Scene.sff_tool = PointerProperty(type=cameraSettings)
     bpy.types.Scene.file_tool = PointerProperty(type=fileSettings)
+
 
 def unregister():
     for cls in reversed(classes):
