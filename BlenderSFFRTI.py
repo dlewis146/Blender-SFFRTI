@@ -248,6 +248,10 @@ class CreateSingleCamera(Operator):
     def execute(self, context):
         scene = context.scene
 
+        if len(scene.sff_tool.camera_list) != 0:
+            self.report({'ERROR'}, "Cameras already exist in scene.")
+            return {'FINISHED'}
+
         # Create single camera at default height (w/o DoF)
         camera_data = bpy.data.cameras.new("Camera")
         camera_data.dof.use_dof = False
@@ -259,14 +263,16 @@ class CreateSingleCamera(Operator):
         # Set parent to RTI parent
         camera_object.parent = scene.rti_tool.rti_parent
 
-        # Move camera to default location
-        camera_object.location = (0,0,2)
+        # Move camera to default location at top of dome
+        camera_object.location = (0,0,scene.rti_tool.dome_radius)
+        # camera_object.location = (0,0,2)
 
         # Add camera ID to SFF camera list for animation creation
         scene.sff_tool.camera_list.append(camera_object.name)
 
         # Add default Z-position to zPosList
-        scene.sff_tool.zPosList.append(2)
+        scene.sff_tool.zPosList.append(scene.rti_tool.dome_radius)
+        # scene.sff_tool.zPosList.append(2)
 
         return {'FINISHED'}
 
@@ -322,6 +328,10 @@ class DeleteLights(Operator):
             # Remove single camera from list if present
             if len(scene.sff_tool.zPosList) == 1:
                 scene.sff_tool.zPosList.clear()
+                scene.sff_tool.camera_list.clear()
+
+
+            # if len(scene.sff_tool.camera_list)
 
         except:
             self.report({'ERROR'}, "Broke inside child name getting")
@@ -349,7 +359,7 @@ class CreateCameras(Operator):
         f = DefineFocusLimits(context)
 
         # Add all zPos to sfftool.zPosList
-        ## NOTE: Seems to require appending to have persistency outside of this method
+        ## NOTE: Seems to require appending to persist outside of this method
         [sfftool.zPosList.append(i) for i in f]
 
         # Instantiate camera object
@@ -383,8 +393,7 @@ class CreateCameras(Operator):
 
         # Move camera to desired location
         if sfftool.camera_type == 'Moving':
-            # Set camera so that first sampled focus point is at "focus distance" from camera 
-            camera_object.location = (0, 0, sfftool.static_focus+f[0])
+            # Set camera so that first sF[0])
         
         elif sfftool.camera_type == 'Static':
             # Set camera to given height
@@ -396,13 +405,16 @@ class CreateCameras(Operator):
         return {'FINISHED'}
 
 
-
 class CreateSingleLight(Operator):
     bl_idname = "sff.create_single_light"
     bl_label = "Create single light for SFF-only system"
     
     def execute(self, context):
         scene = context.scene
+
+        if len(scene.rti_tool.light_list) != 0:
+            self.report({'ERROR'}, "Lights already exist in scene.")
+            return {'FINISHED'}
 
         # Create single light at (0,0,camera_height)
         lightData = bpy.data.lights.new(name="Light", type="SUN")
@@ -592,6 +604,9 @@ class SetAnimation(Operator):
             currentFrame = (camIdx * numLights) + 1
             # currentFrame = (numCams * numLights) + (camIdx * numLights) + 1
 
+            # aperture_size = ComputeApertureSize(context)
+            # camera.data.dof.aperture_fstop = ComputeApertureSize(context)
+
             # Move camera to desired location
             if scene.sff_tool.camera_type == 'Moving':
                 # Move camera to current in zPosList
@@ -654,7 +669,7 @@ class SetAnimation(Operator):
                 # If static camera, set 'z_cam' column to be camera focus distance
                 if scene.sff_tool.camera_type == "Static":
                     csvNewLine = "-{0},{1},{2},{3},{4},{5},{6}".format(outputFrameNumber, light.location[0], light.location[1], light.location[2], camera.data.dof.focus_distance, camera.data.dof.aperture_fstop, camera.data.lens)
-                    print("Keyframe created for static camera focused at (0,0,{0}) and light at ({1}, {2}, {3})".format(camera.data.dof.focus_distance, light.location[0], light.location[1], light.location[2]))
+                    print("Keyframe created for static camera focused at (0,0,{0}) and light at ({1}, {2}, {3})".format(camera.data.dof.focus_distance-scene.sff_tool.camera_height, light.location[0], light.location[1], light.location[2]))
 
                 # If moving camera, set 'z_cam' column to be new camera location
                 elif scene.sff_tool.camera_type == "Moving":
@@ -868,6 +883,50 @@ def DefineFocusLimits(context):
     elif sfftool.focus_limits_auto is False:        
         f = np.linspace(start=sfftool.min_z_pos, stop=sfftool.max_z_pos, num=sfftool.num_z_pos, endpoint=True)
     return f
+
+
+def ComputeApertureSize(context):
+    """
+    Used to compute an appropriate aperture size for the desired number of Z positions in the given space
+    """
+
+    scene = context.scene
+    sfftool = scene.sff_tool
+
+    camera_data = scene.objects[sfftool.camera_list[0]].data
+
+    # Get camera focal length
+    # NOTE: Assuming one camera right now
+    f = camera_data.lens / 1000
+    
+    # Get object distance for computing DoF
+    s = (sfftool.camera_height - sfftool.zPosList[0]) / 1000
+
+    # NOTE: From dof_utils Blender plugin
+    # Calculate Circle of confusion (diameter limit based on d/1500) 
+    # https://en.wikipedia.org/wiki/Circle_of_confusion#Circle_of_confusion_diameter_limit_based_on_d.2F1500
+    c = math.sqrt(camera_data.sensor_width**2 + camera_data.sensor_height**2) / 1500      
+
+
+    D = np.sqrt( (sfftool.zPosList[1] - sfftool.zPosList[0])**2 )
+
+    print(D)
+
+    # D = (np.max(sfftool.zPosList) - np.min(sfftool.zPosList)) / len(sfftool.zPosList)
+    # D = (sfftool.max_z_pos - sfftool.min_z_pos) / sfftool.num_z_pos
+
+    # H = (-np.sqrt( (2*f*s - 2*(s**s)) - 4*D*(-D*(f**f) + 2*D*f*s - D*(s**s)) ) - 2*f*s + 2*(s**s)) / (2*D)
+    H = (-np.sqrt( (D*D + s*s) * (f-s)**2 ) - f*s+(s*s) ) / D
+    
+    print(H)
+
+    N = ((f*f) / (c*f - c * H))
+
+    print(N)
+
+    # N = np.abs(((-np.sqrt(c**2 * f**4 * (targetDoF**2 + s**2) * (f-s)**2)) + (c * f**2 * s) - (c * f**2 * s**2)) / (c**2 * targetDoF * (f-s)**2))
+
+    return N
 
 
 def Cartesian2Polar3D(x, y, z):
