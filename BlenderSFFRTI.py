@@ -394,7 +394,8 @@ class CreateCameras(Operator):
         # Move camera to desired location
         if sfftool.camera_type == 'Moving':
             # Set camera so that first sF[0])
-        
+            camera_object.location = (0, 0, f[0])
+
         elif sfftool.camera_type == 'Static':
             # Set camera to given height
             camera_object.location = (0, 0, sfftool.camera_height)
@@ -739,7 +740,7 @@ class SetRender(Operator):
         # Image output settings
         scene.render.image_settings.file_format = "PNG"
         scene.render.image_settings.color_mode = "RGB"
-        scene.render.image_settings.color_depth = "16"
+        scene.render.image_settings.color_depth = "8"
 
         # Set color management to linear (?)
         scene.display_settings.display_device = 'None'
@@ -761,16 +762,24 @@ class SetRender(Operator):
         current_render_layer.use_pass_glossy_indirect = True
         current_render_layer.use_pass_glossy_color = True
 
-        # Create nodes for Render Layers, normalization, and output files
+        # Create nodes for Render Layers, map range, normalization, and output files
         ## NOTE: Positioning of nodes isn't considered as it's not important for background processes.
         render_layers_node = scene.node_tree.nodes.new(type="CompositorNodeRLayers")
-        normalize_node = scene.node_tree.nodes.new(type="CompositorNodeNormalize")
+        map_range_node = scene.node_tree.nodes.new(type="CompositorNodeMapRange")
+        # normalize_node = scene.node_tree.nodes.new(type="CompositorNodeNormalize")
         output_node_z = scene.node_tree.nodes.new(type="CompositorNodeOutputFile")
         output_node_normal = scene.node_tree.nodes.new(type="CompositorNodeOutputFile")
 
+        # Set map range node settings
+        map_range_node.use_clamp = True
+        map_range_node.inputs[2].default_value = scene.sff_tool.camera_height
+        map_range_node.inputs[1].default_value = (scene.sff_tool.camera_height - scene.sff_tool.max_z_pos)
+
         # Link nodes together
-        scene.node_tree.links.new(render_layers_node.outputs['Depth'], normalize_node.inputs['Value'])
-        scene.node_tree.links.new(normalize_node.outputs['Value'], output_node_z.inputs['Image'])
+        scene.node_tree.links.new(render_layers_node.outputs['Depth'], map_range_node.inputs['Value'])
+        scene.node_tree.links.new(map_range_node.outputs['Value'], output_node_z.inputs['Image'])
+        # scene.node_tree.links.new(render_layers_node.outputs['Depth'], normalize_node.inputs['Value'])
+        # scene.node_tree.links.new(normalize_node.outputs['Value'], output_node_z.inputs['Image'])
         
         scene.node_tree.links.new(render_layers_node.outputs['Normal'], output_node_normal.inputs['Image'])
 
@@ -1041,6 +1050,9 @@ class SFFPanel(Panel):
 
         layout.prop(sfftool, "num_z_pos")
         layout.prop(sfftool, "aperture_size")
+
+        layout.prop(sfftool, "min_z_pos")
+        layout.prop(sfftool, "max_z_pos")
 
         row = layout.row(align = True)
         row.operator("sff.create_sff")
