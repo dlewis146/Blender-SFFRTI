@@ -73,17 +73,17 @@ class lightSettings(PropertyGroup):
 
 class cameraSettings(PropertyGroup):
 
-    focus_limits_auto : BoolProperty(
+    focus_limits_auto : BoolProperty(   
         name="Automatic focus positions", 
         description="Auto setting of camera position limts.",
-        default=False,
+        default=True,
     )
 
-    camera_ortho : BoolProperty(
-        name="Orthographic cameras", 
-        description="Set camera view to orthographic.",
-        default=False,
-    )
+    # camera_ortho : BoolProperty(
+    #     name="Orthographic cameras", 
+    #     description="Set camera view to orthographic.",
+    #     default=False,
+    # )
 
     camera_type : bpy.props.EnumProperty(
         name = "Camera types",
@@ -131,7 +131,7 @@ class cameraSettings(PropertyGroup):
     )
 
     aperture_size : FloatProperty(
-        name="f/#",
+        name="Aperture size (f/#)",
         description="Aperture size, measured in f-stops",
     )
 
@@ -155,12 +155,12 @@ class fileSettings(PropertyGroup):
         maxlen=1024
     )
 
-    output_file_name : StringProperty(
-        name="Output file name",
-        description="File name to use when outputting image files for frames.",
-        default="",
-        maxlen=1024
-    )
+    # output_file_name : StringProperty(
+    #     name="Output file name",
+    #     description="File name to use when outputting image files for frames.",
+    #     default="",
+    #     maxlen=1024
+    # )
 
     csvOutputLines = []
 
@@ -368,8 +368,8 @@ class CreateCameras(Operator):
         camera_data.dof.use_dof = True
 
         # Set camera type to orthographic if box is checked
-        if sfftool.camera_ortho:
-            camera_data.type = 'ORTHO'
+        # if sfftool.camera_ortho:
+        #     camera_data.type = 'ORTHO'
 
         # Set aperture size
         camera_data.dof.aperture_fstop = sfftool.aperture_size
@@ -432,44 +432,6 @@ class CreateSingleLight(Operator):
 
         # Add light ID to RTI light list for animation creation
         scene.rti_tool.light_list.append(light.name)
-
-        return {'FINISHED'}
-
-
-class CreateBackgroundPlane(Operator):
-    bl_idname = "sff.create_background_plane"
-    bl_label = "Create background plane for SFF"
-    
-
-    def execute(self, context):
-        scene = context.scene
-
-        # Create plane with size 2 at (0,0,0)
-        bpy.ops.mesh.primitive_plane_add()
-
-        # Rename plane to a standard name we can reference later from the objects list
-        context.active_object.name = "Background Plane"
-
-        # Create new material and enable nodes
-        mat = bpy.data.materials.new("PlaneTextureBase")
-        mat.use_nodes = True
-        
-        ## Make plane black
-        mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value[0] = 0.0 ## R
-        mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value[1] = 0.0 ## G
-        mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value[2] = 0.0 ## B
-        mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value[3] = 1.0 ## Alpha
-
-        # Set plane's "Specular" and "Roughness" parameters to 0
-        mat.node_tree.nodes["Principled BSDF"].inputs["Specular"].default_value = 0.0
-        mat.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.0
-
-
-        # Assign material to object
-        if scene.objects["Background Plane"].data.materials:
-            scene.objects["Background Plane"].data.materials[0] = mat
-        else:
-            scene.objects["Background Plane"].data.materials.append(mat)
 
         return {'FINISHED'}
 
@@ -714,15 +676,16 @@ class SetRender(Operator):
             pass
 
         outputPath = scene.file_tool.output_path
-        fileName = scene.file_tool.output_file_name
+        # fileName = "Image"
+        # fileName = scene.file_tool.output_file_name
 
         # Error handling
         if outputPath == "":
             self.report({'ERROR'}, "Output file path not set.")
             return {'CANCELLED'}
-        if fileName == "":
-            self.report({'ERROR'}, "Output file name not set.")
-            return {'CANCELLED'}
+        # if fileName == "":
+        #     self.report({'ERROR'}, "Output file name not set.")
+        #     return {'CANCELLED'}
 
         # Get total numbers of frames
         numLights = len(scene.rti_tool.light_list)
@@ -731,8 +694,8 @@ class SetRender(Operator):
         # Get number of spaces with which to zero-pad
         numSpaces = len(str(numCams*numLights))
 
-        # Filename created to match SyntheticRTI as parsing functions are already written for that format
-        scene.render.filepath = "{0}/Renders/{1}-{2}".format(outputPath, fileName,"#"*numSpaces)
+        # Set filepath as well as format for iterated filenames
+        scene.render.filepath = "{0}/Renders/Image-{1}".format(outputPath,"#"*numSpaces)
         
         # Make sure Cycles is set as render engine
         scene.render.engine = 'CYCLES'
@@ -745,7 +708,7 @@ class SetRender(Operator):
         # Set color management to linear (?)
         scene.display_settings.display_device = 'None'
 
-        # Disable overwriting of output images
+        # Disable overwriting of output images by default
         scene.render.use_overwrite = False
 
         # Set render passes
@@ -765,22 +728,30 @@ class SetRender(Operator):
         # Create nodes for Render Layers, map range, normalization, and output files
         ## NOTE: Positioning of nodes isn't considered as it's not important for background processes.
         render_layers_node = scene.node_tree.nodes.new(type="CompositorNodeRLayers")
-        map_range_node = scene.node_tree.nodes.new(type="CompositorNodeMapRange")
         # normalize_node = scene.node_tree.nodes.new(type="CompositorNodeNormalize")
         output_node_z = scene.node_tree.nodes.new(type="CompositorNodeOutputFile")
         output_node_normal = scene.node_tree.nodes.new(type="CompositorNodeOutputFile")
 
-        # Set map range node settings
-        map_range_node.use_clamp = True
-        map_range_node.inputs[2].default_value = scene.sff_tool.camera_height
-        map_range_node.inputs[1].default_value = (scene.sff_tool.camera_height - scene.sff_tool.max_z_pos)
+        if not scene.sff_tool.focus_limits_auto:
+            # Set map range node settings
+            map_range_node = scene.node_tree.nodes.new(type="CompositorNodeMapRange")
+            map_range_node.use_clamp = True
+            map_range_node.inputs[2].default_value = scene.sff_tool.camera_height
+            # map_range_node.inputs[1].default_value = (scene.sff_tool.camera_height - np.max(scene.sff_tool.zPosList))
+            map_range_node.inputs[1].default_value = (scene.sff_tool.camera_height - scene.sff_tool.max_z_pos)
 
-        # Link nodes together
-        scene.node_tree.links.new(render_layers_node.outputs['Depth'], map_range_node.inputs['Value'])
-        scene.node_tree.links.new(map_range_node.outputs['Value'], output_node_z.inputs['Image'])
-        # scene.node_tree.links.new(render_layers_node.outputs['Depth'], normalize_node.inputs['Value'])
-        # scene.node_tree.links.new(normalize_node.outputs['Value'], output_node_z.inputs['Image'])
-        
+            # Link nodes together
+            scene.node_tree.links.new(render_layers_node.outputs['Depth'], map_range_node.inputs['Value'])
+            scene.node_tree.links.new(map_range_node.outputs['Value'], output_node_z.inputs['Image'])
+
+        elif scene.sff_tool.focus_limits_auto:
+            normalize_node = scene.node_tree.nodes.new(type="CompositorNodeNormalize")
+
+            # Link nodes together
+            scene.node_tree.links.new(render_layers_node.outputs['Depth'], normalize_node.inputs['Value'])
+            scene.node_tree.links.new(normalize_node.outputs['Value'], output_node_z.inputs['Image'])
+
+        # Set normal node output
         scene.node_tree.links.new(render_layers_node.outputs['Normal'], output_node_normal.inputs['Image'])
 
         # Set output filepaths
@@ -802,18 +773,18 @@ class CreateCSV(Operator):
         scene = context.scene
 
         outputPath = scene.file_tool.output_path
-        fileName = scene.file_tool.output_file_name
+        # fileName = scene.file_tool.output_file_name
 
         # Error handling
         if outputPath == "":
             self.report({'ERROR'}, "Output file path not set.")
             return {'CANCELLED'}
-        if fileName == "":
-            self.report({'ERROR'}, "Output file name not set.")
-            return {'CANCELLED'}
+        # if fileName == "":
+            # self.report({'ERROR'}, "Output file name not set.")
+            # return {'CANCELLED'}
 
         # Create file
-        filePath = bpy.path.abspath(outputPath + '/' + fileName + ".csv")
+        filePath = bpy.path.abspath(outputPath + "/Image" + ".csv")
         file = open(filePath, 'w')
 
         # Write header
@@ -822,7 +793,7 @@ class CreateCSV(Operator):
 
         # Iterate through the remaining lines, writing desired filename and respective line
         for line in scene.file_tool.csvOutputLines[1:]:
-            file.write(fileName + line)
+            file.write("Image" + line)
             file.write('\n')
         file.close()
 
@@ -973,16 +944,34 @@ def Polar2Cartesian3D(r, longitude, latitude):
 
 ### Panel in Object Mode
 
+class MainPanel(Panel):
+    """
+    Panel to contain all control sub-panels
+    """
+    bl_label = "SFF-RTI Control"
+    bl_idname = "VIEW3D_PT_sffrti_main"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "SFF-RTI"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self,context):
+        layout = self.layout
+        scene = context.scene
+
+
 class RTIPanel(Panel):
     """
     Create tool panel for handling RTI data collection
     """
 
-    bl_label = "RTI Control"
-    bl_idname = "VIEW3D_PT_rti_main"
+    bl_idname = "VIEW3D_PT_rti_subpanel"
+    bl_parent_id = "VIEW3D_PT_sffrti_main"
+    bl_label = "RTI Control"  
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "RTI"
+    bl_category = "SFF-RTI"
+    bl_options = {"DEFAULT_CLOSED"}
 
     # Hide panel when not in proper context
     # @classmethod
@@ -994,22 +983,24 @@ class RTIPanel(Panel):
         scene = context.scene
         mytool = scene.rti_tool
 
+        layout.label(text="Light settings")
         layout.prop(mytool, "lp_file_path")
-
         layout.prop(mytool, "dome_radius")
 
+        layout.label(text="RTI system creation")
         row = layout.row(align = True)
         row.operator("rti.create_rti")
         row.operator("rti.delete_rti")
 
-        layout.operator("rti.create_single_camera")
+        if len(scene.sff_tool.camera_list) == 0:
+            layout.operator("rti.create_single_camera")
 
-        layout.prop(scene.file_tool, "output_path")
-        layout.prop(scene.file_tool, "output_file_name")
+        # layout.prop(scene.file_tool, "output_path")
+        # layout.prop(scene.file_tool, "output_file_name")
 
-        layout.operator("sffrti.set_animation")
-        layout.operator("files.set_render")
-        layout.operator("files.create_csv")
+        # layout.operator("sffrti.set_animation")
+        # layout.operator("files.set_render")
+        # layout.operator("files.create_csv")
 
 
         layout.separator()
@@ -1020,62 +1011,99 @@ class SFFPanel(Panel):
     Create tool panel for handling SFF data collection
     """
 
+    bl_idname = "VIEW3D_PT_sff_subpanel"
+    bl_parent_id = "VIEW3D_PT_sffrti_main"
     bl_label = "SFF Control"
-    bl_idname = "VIEW3D_PT_sff_main"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "SFF"
-
-    # Hide panel when not in proper context
-    # @classmethod
-    # def poll(self, context):
-    #     return context.object is not None
+    bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
         sfftool = scene.sff_tool
 
-        row = layout.row(align = True)
-        row.prop(sfftool, "camera_ortho")
-        row.prop(sfftool, "focus_limits_auto")
+        # row1 = layout.row(align = True)
+        # row.prop(sfftool, "camera_ortho")
 
-        layout.prop(sfftool, "camera_type")
-
+        layout.label(text="SFF acquisition settings")
+        layout.prop(sfftool, "focus_limits_auto")
         layout.prop(sfftool, "main_object")
-
-        layout.prop(sfftool, "static_focus")
-
-        layout.prop(sfftool, "camera_height")
-
         layout.prop(sfftool, "num_z_pos")
+
+        layout.separator()
+
+        layout.label(text="Camera parameters")
+        layout.prop(sfftool, "camera_type")
         layout.prop(sfftool, "aperture_size")
 
-        layout.prop(sfftool, "min_z_pos")
-        layout.prop(sfftool, "max_z_pos")
+        if sfftool.camera_type == "Static":
+            layout.prop(sfftool, "camera_height")
+            layout.prop(sfftool, "static_focus")
 
-        row = layout.row(align = True)
-        row.operator("sff.create_sff")
-        row.operator("sff.delete_sff")
 
-        layout.operator("sff.create_single_light")
+        if not sfftool.focus_limits_auto:
 
-        layout.operator("sff.create_background_plane")
+            layout.separator()
+
+            layout.label(text="Manual Z position settings")
+            layout.prop(sfftool, "min_z_pos")
+            layout.prop(sfftool, "max_z_pos")
+
+        layout.separator()
+
+        layout.label(text="SFF system creation")
+
+        row2 = layout.row(align = True)
+        row2.operator("sff.create_sff")
+        row2.operator("sff.delete_sff")
+
+        if len(scene.rti_tool.light_list) == 0:
+            layout.operator("sff.create_single_light")
+
+        # layout.operator("sffrti.set_animation")
+
+        # layout.prop(scene.file_tool, "output_path")
+        # # layout.prop(scene.file_tool, "output_file_name")
+
+        # # row
+        # layout.operator("files.set_render")
+        # layout.operator("files.create_csv")
+
+        layout.separator()
+
+class OutputPanel(Panel):
+    """
+    Create tool panel for handling output and render options
+    """
+
+    bl_idname = "VIEW3D_PT_output_subpanel"
+    bl_parent_id = "VIEW3D_PT_sffrti_main"
+    bl_label = "Output Control"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "SFF-RTI Output"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        filetool = scene.file_tool
 
         layout.operator("sffrti.set_animation")
 
         layout.prop(scene.file_tool, "output_path")
-        layout.prop(scene.file_tool, "output_file_name")
 
         layout.operator("files.set_render")
         layout.operator("files.create_csv")
 
         layout.separator()
-
+    
 
 ### Registration
 
-classes = (light, camera, lightSettings, cameraSettings, fileSettings, CreateLights, CreateSingleCamera, DeleteLights, CreateCameras, CreateSingleLight, CreateBackgroundPlane, DeleteCameras, SetAnimation, SetRender, CreateCSV, RTIPanel, SFFPanel)
+classes = (light, camera, lightSettings, cameraSettings, fileSettings, CreateLights, CreateSingleCamera, DeleteLights, CreateCameras, CreateSingleLight, DeleteCameras, SetAnimation, SetRender, CreateCSV, MainPanel, RTIPanel, SFFPanel, OutputPanel)
 
 def register():
 
