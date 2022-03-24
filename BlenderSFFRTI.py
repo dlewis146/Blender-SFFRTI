@@ -270,6 +270,9 @@ class CreateSingleCamera(Operator):
         # Add camera ID to SFF camera list for animation creation
         scene.sff_tool.camera_list.append(camera_object.name)
 
+        # NOTE: First clearing zPosList to make sure that previous SFF collections aren't being stored still. This would create a false understanding of the number of positions
+        scene.sff_tool.zPosList.clear()
+
         # Add default Z-position to zPosList
         scene.sff_tool.zPosList.append(scene.rti_tool.dome_radius)
         # scene.sff_tool.zPosList.append(2)
@@ -537,15 +540,15 @@ class SetAnimation(Operator):
             o.animation_data_clear()
 
         # Recompute SFF camera positions if currently stored num_z_pos is different than length of stored position list 
-        if scene.sff_tool.num_z_pos != len(scene.sff_tool.zPosList):
-            f = DefineFocusLimits(context)
+        # if scene.sff_tool.num_z_pos != len(scene.sff_tool.zPosList):
+        #     f = DefineFocusLimits(context)
 
-            # Clear sfftool.zPosList
-            scene.sff_tool.zPosList.clear()
+        #     # Clear sfftool.zPosList
+        #     scene.sff_tool.zPosList.clear()
 
-            # Add all zPos to sfftool.zPosList
-            ## NOTE: Seems to require appending to have persistency outside of this method
-            [scene.sff_tool.zPosList.append(i) for i in f]
+        #     # Add all zPos to sfftool.zPosList
+        #     ## NOTE: Seems to require appending to have persistency outside of this method
+        #     [scene.sff_tool.zPosList.append(i) for i in f]
 
 
         # Clear timeline markers
@@ -712,7 +715,7 @@ class SetRender(Operator):
         scene.render.use_overwrite = False
 
         # Set render passes
-        current_render_layer = scene.view_layers['View Layer']
+        current_render_layer = scene.view_layers['ViewLayer']
         # current_render_layer = scene.view_layers.active
         current_render_layer.use_pass_combined = True
         current_render_layer.use_pass_z = True
