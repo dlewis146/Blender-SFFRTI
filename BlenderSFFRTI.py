@@ -1,8 +1,8 @@
 bl_info = {
     "name" : "Blender SFF-RTI",
     "author" : "David A. Lewis",
-    "version" : (1, 0, 0),
-    "blender" : (2, 80, 0),
+    "version" : (1, 1, 0),
+    "blender" : (3, 0, 0),
     "location" : "3D View > Tools > Blender RTI",
     "description" : "Addon for the digital simulation of RTI and SFF data collections",
     "warning" : "",
@@ -16,6 +16,7 @@ import bpy
 from mathutils import Vector
 import numpy as np
 import math
+import csv
 
 from bpy.props import (StringProperty,
                        BoolProperty,
@@ -73,17 +74,16 @@ class lightSettings(PropertyGroup):
 
 class cameraSettings(PropertyGroup):
 
-    focus_limits_auto : BoolProperty(   
-        name="Automatic focus positions", 
-        description="Auto setting of camera position limts.",
-        default=True,
+    focus_limits_type : bpy.props.EnumProperty(
+        name = "Focus limit methods",
+        description = "Select a method for choosing SFF depth levels",
+        items = [
+            ('Auto', "Automatic focus limits", "Sets focus limits based on highest and lowest vertices of selected object."),
+            ('Manual', "Manual focus limits", "Allows for setting of focus limits manually."),
+            ('Tasked', "Tasked SFF w/ CSV", "Reads a given CSV for depth levels to image at.")
+                ]
     )
 
-    # camera_ortho : BoolProperty(
-    #     name="Orthographic cameras", 
-    #     description="Set camera view to orthographic.",
-    #     default=False,
-    # )
 
     camera_type : bpy.props.EnumProperty(
         name = "Camera types",
@@ -140,6 +140,14 @@ class cameraSettings(PropertyGroup):
         type=bpy.types.Object,
         description="Parent for SFF-related objects",
     )
+
+    tasked_file_path : StringProperty(
+        name="Tasked SFF file path", 
+        subtype="FILE_PATH",
+        description="File path for CSV which describes depth levels for a tasked SFF acquisition (.csv)",
+        default="",
+        maxlen=1024
+        )
 
     # camera_object_list : bpy.props.CollectionProperty(type = camera)
     camera_list = []
@@ -679,16 +687,11 @@ class SetRender(Operator):
             pass
 
         outputPath = scene.file_tool.output_path
-        # fileName = "Image"
-        # fileName = scene.file_tool.output_file_name
 
         # Error handling
         if outputPath == "":
             self.report({'ERROR'}, "Output file path not set.")
             return {'CANCELLED'}
-        # if fileName == "":
-        #     self.report({'ERROR'}, "Output file name not set.")
-        #     return {'CANCELLED'}
 
         # Get total numbers of frames
         numLights = len(scene.rti_tool.light_list)
@@ -735,7 +738,7 @@ class SetRender(Operator):
         output_node_z = scene.node_tree.nodes.new(type="CompositorNodeOutputFile")
         output_node_normal = scene.node_tree.nodes.new(type="CompositorNodeOutputFile")
 
-        if not scene.sff_tool.focus_limits_auto:
+        if scene.sff_tool.focus_limits_type != "Auto":
             # Set map range node settings
             map_range_node = scene.node_tree.nodes.new(type="CompositorNodeMapRange")
             map_range_node.use_clamp = True
@@ -747,7 +750,7 @@ class SetRender(Operator):
             scene.node_tree.links.new(render_layers_node.outputs['Depth'], map_range_node.inputs['Value'])
             scene.node_tree.links.new(map_range_node.outputs['Value'], output_node_z.inputs['Image'])
 
-        elif scene.sff_tool.focus_limits_auto:
+        elif scene.sff_tool.focus_limits_type == "Auto":
             normalize_node = scene.node_tree.nodes.new(type="CompositorNodeNormalize")
 
             # Link nodes together
@@ -766,7 +769,8 @@ class SetRender(Operator):
         
 class CreateCSV(Operator):
     bl_idname = "files.create_csv"
-    bl_label = "Create CSV file"
+    # bl_label = "Create CSV file"
+    bl_label = "Create CSV and text files"
 
     @classmethod
     def poll(cls, context):
@@ -776,15 +780,11 @@ class CreateCSV(Operator):
         scene = context.scene
 
         outputPath = scene.file_tool.output_path
-        # fileName = scene.file_tool.output_file_name
 
         # Error handling
         if outputPath == "":
             self.report({'ERROR'}, "Output file path not set.")
             return {'CANCELLED'}
-        # if fileName == "":
-            # self.report({'ERROR'}, "Output file name not set.")
-            # return {'CANCELLED'}
 
         # Create file
         filePath = bpy.path.abspath(outputPath + "/Image" + ".csv")
@@ -798,6 +798,17 @@ class CreateCSV(Operator):
         for line in scene.file_tool.csvOutputLines[1:]:
             file.write("Image" + line)
             file.write('\n')
+        file.close()
+
+        # Write out camera distance and aperture size from sff_tool into 
+        # space-delimited text file
+        filePath = bpy.path.abspath(outputPath + "/Camera Settings" + ".txt")
+        file = open(filePath, 'w')
+        file.write("distance ")
+        file.write(str(context.scene.sff_tool.camera_height))
+        file.write('\n')
+        file.write("aperture ")
+        file.write(str(context.scene.sff_tool.aperture_size))
         file.close()
 
         return {'FINISHED'}
@@ -814,7 +825,7 @@ def DefineFocusLimits(context):
     sfftool = scene.sff_tool
 
     f = []
-    if sfftool.focus_limits_auto:
+    if sfftool.focus_limits_type == "Auto":
         # Get min and max vertex Z positions and use to create f
 
 
@@ -862,9 +873,29 @@ def DefineFocusLimits(context):
 
         f = np.linspace(start=minZ, stop=maxZ, num=sfftool.num_z_pos, endpoint=True) 
 
+    elif sfftool.focus_limits_type == "Tasked":
 
-    elif sfftool.focus_limits_auto is False:        
+        # Check to make sure that CSV exists
+        if not os.path.isfile(sfftool.tasked_file_path):
+            self.report({"ERROR"})
+
+        # Read in .csv data
+        filename = open(sfftool.tasked_file_path, 'r')
+        depthData = csv.DictReader(filename)
+
+        ## NOTE: Subtracting camera height from distances
+
+        # Iterate through CSV file and get desired depth levels
+        for col in depthData:
+            # f.append(sfftool.camera_height - float(col["Depth"]))
+            f.append(float(col["Depth"]))
+
+        # Sort stored depth levels
+        f = sorted(f)
+
+    elif sfftool.focus_limits_type == "Manual":
         f = np.linspace(start=sfftool.min_z_pos, stop=sfftool.max_z_pos, num=sfftool.num_z_pos, endpoint=True)
+
     return f
 
 
@@ -956,7 +987,7 @@ class MainPanel(Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "SFF-RTI"
-    bl_options = {"DEFAULT_CLOSED"}
+    # bl_options = {"HEADER_LAYOUT_EXPAND"}
 
     def draw(self,context):
         layout = self.layout
@@ -1031,7 +1062,7 @@ class SFFPanel(Panel):
         # row.prop(sfftool, "camera_ortho")
 
         layout.label(text="SFF acquisition settings")
-        layout.prop(sfftool, "focus_limits_auto")
+        layout.prop(sfftool, "focus_limits_type")
         layout.prop(sfftool, "main_object")
         layout.prop(sfftool, "num_z_pos")
 
@@ -1046,13 +1077,18 @@ class SFFPanel(Panel):
             layout.prop(sfftool, "static_focus")
 
 
-        if not sfftool.focus_limits_auto:
+        if sfftool.focus_limits_type == "Manual":
 
             layout.separator()
 
             layout.label(text="Manual Z position settings")
             layout.prop(sfftool, "min_z_pos")
             layout.prop(sfftool, "max_z_pos")
+
+        if sfftool.focus_limits_type == "Tasked":
+
+            layout.separator()
+            layout.prop(sfftool, "tasked_file_path")
 
         layout.separator()
 
