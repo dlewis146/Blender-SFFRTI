@@ -1064,7 +1064,9 @@ class SFFPanel(Panel):
         layout.label(text="SFF acquisition settings")
         layout.prop(sfftool, "focus_limits_type")
         layout.prop(sfftool, "main_object")
-        layout.prop(sfftool, "num_z_pos")
+
+        if sfftool.focus_limits_type != "Tasked":
+            layout.prop(sfftool, "num_z_pos")
 
         layout.separator()
 
