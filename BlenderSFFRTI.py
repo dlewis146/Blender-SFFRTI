@@ -38,19 +38,19 @@ from numpy import arange, subtract
 ### Scene Properties
 
 class light(bpy.types.PropertyGroup):
-    light = bpy.props.PointerProperty(name="Light object", 
+    light = bpy.props.PointerProperty(name="Light object",
                                       type = bpy.types.Object,
                                       description = "A light source")
 
 class camera(bpy.types.PropertyGroup):
-    camera = bpy.props.PointerProperty(name="Camera object", 
+    camera = bpy.props.PointerProperty(name="Camera object",
                                       type = bpy.types.Object,
                                       description = "A camera")
 
 class lightSettings(PropertyGroup):
 
     lp_file_path : StringProperty(
-        name="LP file path", 
+        name="LP file path",
         subtype="FILE_PATH",
         description="File path for light positions file (.lp)",
         default="",
@@ -95,7 +95,7 @@ class cameraSettings(PropertyGroup):
     )
 
     static_focus : FloatProperty(
-        name="Static camera focus distance", 
+        name="Static camera focus distance",
         description="Focus distance for non-static camera placement",
         default=1.0,
     )
@@ -107,25 +107,25 @@ class cameraSettings(PropertyGroup):
     )
 
     num_z_pos : IntProperty(
-        name="Number of Z positions", 
+        name="Number of Z positions",
         description="Number of Z positions",
         default=1,
     )
-   
+
     min_z_pos : FloatProperty(
-        name="Lower focus position", 
+        name="Lower focus position",
         description="Lowest location to focus for SFF collection",
         default=2.0,
     )
-    
+
     max_z_pos : FloatProperty(
-        name="Upper focus position", 
+        name="Upper focus position",
         description="Highest location to focus for SFF collection",
         default=2.0,
     )
 
     main_object : PointerProperty(
-        name="Object", 
+        name="Object",
         description="Object to use as focus for SFF collection.",
         type=bpy.types.Object,
     )
@@ -142,7 +142,7 @@ class cameraSettings(PropertyGroup):
     )
 
     tasked_file_path : StringProperty(
-        name="Tasked SFF file path", 
+        name="Tasked SFF file path",
         subtype="FILE_PATH",
         description="File path for CSV which describes depth levels for a tasked SFF acquisition (.csv)",
         default="",
@@ -161,6 +161,10 @@ class fileSettings(PropertyGroup):
         description="Folder path for outputting rendered frames.",
         default="",
         maxlen=1024
+    )
+    prep_for_background_render : BoolProperty(
+        name ="Prepare for background rendering",
+        default=False
     )
 
     # output_file_name : StringProperty(
@@ -229,13 +233,13 @@ class CreateLights(Operator):
             # Create light
             current_light = bpy.data.objects.new(name="Light_{0}".format(idx), object_data=lightData)
             # current_light = bpy.data.objects.new(name="Lamp_{0}".format(idx), object_data=bpy.data.lights.new(name="RTI_light", type="SUN"))
-            
+
             # Re-position light
             current_light.location = (x, y, z)
 
             # Link light to scene
-            scene.collection.objects.link(current_light)   
-            
+            scene.collection.objects.link(current_light)
+
             current_light.rotation_mode = 'QUATERNION'
             current_light.rotation_quaternion = Vector((x,y,z)).to_track_quat('Z','Y')
 
@@ -245,7 +249,7 @@ class CreateLights(Operator):
             # Add light name to stored list for easier file creation later
             rtitool.light_list.append(current_light.name)
 
-        return {"FINISHED"}            
+        return {"FINISHED"}
 
 
 class CreateSingleCamera(Operator):
@@ -264,10 +268,10 @@ class CreateSingleCamera(Operator):
         camera_data = bpy.data.cameras.new("Camera")
         camera_data.dof.use_dof = False
         camera_object = bpy.data.objects.new("Camera", camera_data)
-        
+
         # Link camera to current scene
         scene.collection.objects.link(camera_object)
-        
+
         # Set parent to RTI parent
         camera_object.parent = scene.rti_tool.rti_parent
 
@@ -310,7 +314,7 @@ class DeleteLights(Operator):
         except:
             pass
 
-        try: 
+        try:
             # Source: https://blender.stackexchange.com/questions/44653/delete-parent-object-hierarchy-in-code
             names = set()
 
@@ -353,7 +357,7 @@ class DeleteLights(Operator):
 class CreateCameras(Operator):
     bl_idname = "sff.create_sff"
     bl_label = "Create SFF system"
-    
+
     def execute(self, context):
         scene = context.scene
         sfftool = scene.sff_tool
@@ -420,7 +424,7 @@ class CreateCameras(Operator):
 class CreateSingleLight(Operator):
     bl_idname = "sff.create_single_light"
     bl_label = "Create single light for SFF-only system"
-    
+
     def execute(self, context):
         scene = context.scene
 
@@ -450,7 +454,7 @@ class CreateSingleLight(Operator):
 class DeleteCameras(Operator):
     bl_idname = "sff.delete_sff"
     bl_label = "Delete SFF system"
-    
+
     def execute(self, context):
         scene = context.scene
         sfftool = scene.sff_tool
@@ -518,7 +522,7 @@ class SetAnimation(Operator):
     def execute(self, context):
 
         scene = context.scene
-        
+
         # Set renderer to Cycles
         scene.render.engine = 'CYCLES'
 
@@ -547,7 +551,7 @@ class SetAnimation(Operator):
         for o in scene.objects:
             o.animation_data_clear()
 
-        # Recompute SFF camera positions if currently stored num_z_pos is different than length of stored position list 
+        # Recompute SFF camera positions if currently stored num_z_pos is different than length of stored position list
         # if scene.sff_tool.num_z_pos != len(scene.sff_tool.zPosList):
         #     f = DefineFocusLimits(context)
 
@@ -561,7 +565,7 @@ class SetAnimation(Operator):
 
         # Clear timeline markers
         scene.timeline_markers.clear()
-        
+
         camCount = 0
         lightCount = 0
 
@@ -589,7 +593,7 @@ class SetAnimation(Operator):
             elif scene.sff_tool.camera_type == 'Static':
                 # Change camera focus distance to current in zPosList
                 camera.data.dof.focus_distance = (scene.sff_tool.camera_height - scene.sff_tool.zPosList[camIdx])
-            
+
             # mark = scene.timeline_markers.new(camera.name, frame=currentFrame)
             # mark.camera = camera
 
@@ -628,7 +632,7 @@ class SetAnimation(Operator):
                 if scene.sff_tool.camera_type == 'Moving':
                     camera.keyframe_insert(data_path="location", frame=currentFrame)
                     camera.keyframe_insert(data_path="location", frame=currentFrame)
-                
+
                 # Insert keyframes to animate camera focus length at current frame IF STATIC IS SELECTED
                 if scene.sff_tool.camera_type == 'Static':
                     camera.data.dof.keyframe_insert(data_path="focus_distance", frame=currentFrame)
@@ -658,7 +662,7 @@ class SetAnimation(Operator):
 
             camCount += 1
             lightCount = 0
-        
+
         # Set maximum number of frames to render (-1 for the header)
         scene.frame_end = len(scene.file_tool.csvOutputLines)-1
 
@@ -672,7 +676,7 @@ class SetRender(Operator):
 
     def execute(self, context):
         scene = context.scene
-        
+
         # Make sure compositing and nodes are enabled so that we can generate depth and normal images with render passes
         if not scene.render.use_compositing:
             scene.render.use_compositing = True
@@ -702,7 +706,7 @@ class SetRender(Operator):
 
         # Set filepath as well as format for iterated filenames
         scene.render.filepath = "{0}/Renders/Image-{1}".format(outputPath,"#"*numSpaces)
-        
+
         # Make sure Cycles is set as render engine
         scene.render.engine = 'CYCLES'
 
@@ -760,13 +764,20 @@ class SetRender(Operator):
         # Set normal node output
         scene.node_tree.links.new(render_layers_node.outputs['Normal'], output_node_normal.inputs['Image'])
 
-        # Set output filepaths
-        output_node_z.base_path = scene.file_tool.output_path + "/Depth/"
-        output_node_normal.base_path = scene.file_tool.output_path + "/Normal/"
+        # Set output filepaths depending on if it's running in background mode (Running headless on Linux server) or not (Running in GUI)
+
+        # if bpy.app.background == False:
+        if scene.file_tool.prep_for_background_render == False:
+            output_node_z.base_path = scene.file_tool.output_path + "/Depth/"
+            output_node_normal.base_path = scene.file_tool.output_path + "/Normal/"
+        # elif bpy.app.background == True:
+        if scene.file_tool.prep_for_background_render == True:
+            output_node_z.base_path = "//Depth/"
+            output_node_normal.base_path = "//Normal/"
 
         return {'FINISHED'}
 
-        
+
 class CreateCSV(Operator):
     bl_idname = "files.create_csv"
     # bl_label = "Create CSV file"
@@ -800,15 +811,58 @@ class CreateCSV(Operator):
             file.write('\n')
         file.close()
 
-        # Write out camera distance and aperture size from sff_tool into 
-        # space-delimited text file
-        filePath = bpy.path.abspath(outputPath + "/Camera Settings" + ".txt")
+        # Get selected object reference
+        obj = context.scene.sff_tool.main_object # Selected object for SFF
+
+        # Write out scene settings into CSV file for computer readability
+        filePath = bpy.path.abspath(outputPath + "/Scene Settings" + ".csv")
         file = open(filePath, 'w')
-        file.write("distance ")
+        file.write("distance,aperture,object_name,location_x,location_y,location_z,rotation_x,rotation_y,rotation_z,scale_x,scale_y,scale_z\n")
         file.write(str(context.scene.sff_tool.camera_height))
-        file.write('\n')
-        file.write("aperture ")
+        file.write(",")
         file.write(str(context.scene.sff_tool.aperture_size))
+        file.write(",")
+        file.write(obj.name)
+        file.write(",")
+        file.write(str(obj.location[0]))
+        file.write(",")
+        file.write(str(obj.location[1]))
+        file.write(",")
+        file.write(str(obj.location[2]))
+        file.write(",")
+        file.write(str(obj.rotation_euler[0]))
+        file.write(",")
+        file.write(str(obj.rotation_euler[1]))
+        file.write(",")
+        file.write(str(obj.rotation_euler[2]))
+        file.write(",")
+        file.write(str(obj.scale[0]))
+        file.write(",")
+        file.write(str(obj.scale[1]))
+        file.write(",")
+        file.write(str(obj.scale[2]))
+
+        file.close()
+
+        # Write out camera distance and aperture size from sff_tool into
+        # space-delimited text file for human readability
+        filePath = bpy.path.abspath(outputPath + "/Scene Settings" + ".txt")
+        file = open(filePath, 'w')
+        file.write("---Camera Settings---")
+        file.write("\ndistance ")
+        file.write(str(context.scene.sff_tool.camera_height))
+        file.write("\naperture ")
+        file.write(str(context.scene.sff_tool.aperture_size))
+        file.write("\n\n---Object Info---")
+        file.write("\nname ")
+        file.write(obj.name)
+        file.write("\nlocation ")
+        file.write(str(obj.location))
+        file.write("\nrotation ")
+        file.write(str(obj.rotation_euler))
+        file.write("\nscale ")
+        file.write(str(obj.scale))
+
         file.close()
 
         return {'FINISHED'}
@@ -836,7 +890,7 @@ def DefineFocusLimits(context):
         maxZ = 0
 
         if len(obj.children) >= 1:
-            
+
             # If the selected object has children, iterate through them, transforming their vertex coordinates into world coordinates, then find the minimum and maximum amongst them.
             for child in obj.children:
 
@@ -850,7 +904,7 @@ def DefineFocusLimits(context):
 
                 if minZCurr < minZ:
                     minZ = minZCurr
-                
+
                 if maxZCurr > maxZ:
                     maxZ = maxZCurr
 
@@ -867,11 +921,11 @@ def DefineFocusLimits(context):
 
             if minZCurr < minZ:
                 minZ = minZCurr
-            
+
             if maxZCurr > maxZ:
                 maxZ = maxZCurr
 
-        f = np.linspace(start=minZ, stop=maxZ, num=sfftool.num_z_pos, endpoint=True) 
+        f = np.linspace(start=minZ, stop=maxZ, num=sfftool.num_z_pos, endpoint=True)
 
     elif sfftool.focus_limits_type == "Tasked":
 
@@ -912,14 +966,14 @@ def ComputeApertureSize(context):
     # Get camera focal length
     # NOTE: Assuming one camera right now
     f = camera_data.lens / 1000
-    
+
     # Get object distance for computing DoF
     s = (sfftool.camera_height - sfftool.zPosList[0]) / 1000
 
     # NOTE: From dof_utils Blender plugin
-    # Calculate Circle of confusion (diameter limit based on d/1500) 
+    # Calculate Circle of confusion (diameter limit based on d/1500)
     # https://en.wikipedia.org/wiki/Circle_of_confusion#Circle_of_confusion_diameter_limit_based_on_d.2F1500
-    c = math.sqrt(camera_data.sensor_width**2 + camera_data.sensor_height**2) / 1500      
+    c = math.sqrt(camera_data.sensor_width**2 + camera_data.sensor_height**2) / 1500
 
 
     D = np.sqrt( (sfftool.zPosList[1] - sfftool.zPosList[0])**2 )
@@ -931,7 +985,7 @@ def ComputeApertureSize(context):
 
     # H = (-np.sqrt( (2*f*s - 2*(s**s)) - 4*D*(-D*(f**f) + 2*D*f*s - D*(s**s)) ) - 2*f*s + 2*(s**s)) / (2*D)
     H = (-np.sqrt( (D*D + s*s) * (f-s)**2 ) - f*s+(s*s) ) / D
-    
+
     print(H)
 
     N = ((f*f) / (c*f - c * H))
@@ -1001,7 +1055,7 @@ class RTIPanel(Panel):
 
     bl_idname = "VIEW3D_PT_rti_subpanel"
     bl_parent_id = "VIEW3D_PT_sffrti_main"
-    bl_label = "RTI Control"  
+    bl_label = "RTI Control"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "SFF-RTI"
@@ -1132,15 +1186,17 @@ class OutputPanel(Panel):
         scene = context.scene
         filetool = scene.file_tool
 
+        layout.prop(filetool, "prep_for_background_render")
+
         layout.operator("sffrti.set_animation")
 
-        layout.prop(scene.file_tool, "output_path")
+        layout.prop(filetool, "output_path")
 
         layout.operator("files.set_render")
         layout.operator("files.create_csv")
 
         layout.separator()
-    
+
 
 ### Registration
 
