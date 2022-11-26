@@ -7,9 +7,9 @@ Usage section to be made.
 
 ## Prerequisites
 
-All that's required to use this plugin is the software it's written for: Blender. Specifially, **Blender 2.8+** .
+All that's required to use this plugin is the software it's written for: Blender. Specifially, **Blender 3.0+** .
 
-Version 2.8+ is required as this update saw a signficant update to the program, including changes to both the user interface (UI) and Python application programming interface (API).
+Version 3.0+ is required as this update saw a signficant update to the program, including changes to both the user interface (UI) and Python application programming interface (API).
 
 ## Installation
 
