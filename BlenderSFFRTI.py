@@ -705,7 +705,12 @@ class SetRender(Operator):
         numSpaces = len(str(numCams*numLights))
 
         # Set filepath as well as format for iterated filenames
+        ## NOTE: If preparing for a background render, use `//` to begin
+        ## the filepath relative to the .blend file
+        if scene.file_tool.prep_for_background_render == False:
         scene.render.filepath = "{0}/Renders/Image-{1}".format(outputPath,"#"*numSpaces)
+        if scene.file_tool.prep_for_background_render == True:
+            scene.render.filepath = "//Renders/Image-{1}".format(outputPath,"#"*numSpaces)
 
         # Make sure Cycles is set as render engine
         scene.render.engine = 'CYCLES'
@@ -1069,15 +1074,18 @@ class RTIPanel(Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        mytool = scene.rti_tool
+        rtitool = scene.rti_tool
 
         layout.label(text="Light settings")
-        layout.prop(mytool, "lp_file_path")
-        layout.prop(mytool, "dome_radius")
+        layout.prop(rtitool, "lp_file_path")
+        layout.prop(rtitool, "dome_radius")
 
         layout.label(text="RTI system creation")
         row = layout.row(align = True)
+
+        if rtitool.rti_parent == None
         row.operator("rti.create_rti")
+        else
         row.operator("rti.delete_rti")
 
         if len(scene.sff_tool.camera_list) == 0:
@@ -1151,20 +1159,13 @@ class SFFPanel(Panel):
         layout.label(text="SFF system creation")
 
         row2 = layout.row(align = True)
+        if sff_parent == None
         row2.operator("sff.create_sff")
+        else 
         row2.operator("sff.delete_sff")
 
         if len(scene.rti_tool.light_list) == 0:
             layout.operator("sff.create_single_light")
-
-        # layout.operator("sffrti.set_animation")
-
-        # layout.prop(scene.file_tool, "output_path")
-        # # layout.prop(scene.file_tool, "output_file_name")
-
-        # # row
-        # layout.operator("files.set_render")
-        # layout.operator("files.create_csv")
 
         layout.separator()
 
