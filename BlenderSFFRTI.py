@@ -708,7 +708,7 @@ class SetRender(Operator):
         ## NOTE: If preparing for a background render, use `//` to begin
         ## the filepath relative to the .blend file
         if scene.file_tool.prep_for_background_render == False:
-        scene.render.filepath = "{0}/Renders/Image-{1}".format(outputPath,"#"*numSpaces)
+            scene.render.filepath = "{0}/Renders/Image-{1}".format(outputPath,"#"*numSpaces)
         if scene.file_tool.prep_for_background_render == True:
             scene.render.filepath = "//Renders/Image-{1}".format(outputPath,"#"*numSpaces)
 
@@ -1083,10 +1083,10 @@ class RTIPanel(Panel):
         layout.label(text="RTI system creation")
         row = layout.row(align = True)
 
-        if rtitool.rti_parent == None
-        row.operator("rti.create_rti")
-        else
-        row.operator("rti.delete_rti")
+        if rtitool.rti_parent == None:
+            row.operator("rti.create_rti")
+        else:
+            row.operator("rti.delete_rti")
 
         if len(scene.sff_tool.camera_list) == 0:
             layout.operator("rti.create_single_camera")
@@ -1159,10 +1159,10 @@ class SFFPanel(Panel):
         layout.label(text="SFF system creation")
 
         row2 = layout.row(align = True)
-        if sff_parent == None
-        row2.operator("sff.create_sff")
-        else 
-        row2.operator("sff.delete_sff")
+        if sfftool.sff_parent == None:
+            row2.operator("sff.create_sff")
+        else:
+            row2.operator("sff.delete_sff")
 
         if len(scene.rti_tool.light_list) == 0:
             layout.operator("sff.create_single_light")
